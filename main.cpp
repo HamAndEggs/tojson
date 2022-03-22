@@ -70,8 +70,9 @@ class PipeToJson : public CommandLineOptions
             // After each closing bracket, decrease indent. Add newline, but after a comma if there is one.
             int indent = GetDocumentPerLine() ? 0 : mTabSpaces;
             std::string formatted;
+            bool inString = false;
 
-            #define DO_NEWLINE {if(GetPretty()){formatted += '\n';formatted += std::string(indent,' ');}}
+            #define DO_NEWLINE {if(GetPretty() && inString == false ){formatted += '\n';formatted += std::string(indent,' ');}}
 
             DO_NEWLINE
             // Don't do the last char so we can easily check the next char. Otherwise could go pop. Last should always be } or ]
@@ -99,6 +100,10 @@ class PipeToJson : public CommandLineOptions
                 else if( c == ',')
                 {
                     DO_NEWLINE
+                }
+                else if( c == '\"' )
+                {
+                    inString = !inString;
                 }
             }
             indent -= mTabSpaces;
