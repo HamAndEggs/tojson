@@ -7,15 +7,14 @@
 #include <string>
 #include <limits>
 
-
-class PipeToJson : public CommandLineOptions
-{
     const std::string mHelp = R"(Usage: tojson [OPTION]
 Turn the input file (or as part of a pipe), into a json formatted string.
 If input string is not specified then will expect data on the input stream.
 If output file is not specified then will write to std::cout.
 )";
 
+class PipeToJson : public CommandLineOptions
+{
     std::string mInputFileName;
     size_t mDepth = 0;
     size_t mNumLines = std::numeric_limits<size_t>::max();
@@ -23,6 +22,7 @@ If output file is not specified then will write to std::cout.
 
     bool GetPretty()const{return IsSet('p');}
     bool GetDocumentPerLine()const{return IsSet('m');}
+    bool GetSkipEmptyLines()const{return IsSet('s');}
 
     std::string ConvertLineToJson(const std::string& rawLine,const std::vector<std::string>& columns)
     {
@@ -30,9 +30,14 @@ If output file is not specified then will write to std::cout.
         jsonLine << "{";
 
         const std::vector<std::string> data = SplitString(rawLine," ");
+        if( GetSkipEmptyLines() && data.size() == 0 )
+        {
+            return "";
+        }
+
         if( data.size() == 0 )
         {
-            TOJSON_THROW("Inout line from the stream did not contain any data");
+            TOJSON_THROW("Input line from the stream did not contain any data");
         }
 
         const size_t lastColumn = columns.size()-1;
@@ -66,13 +71,15 @@ If output file is not specified then will write to std::cout.
             int indent = GetDocumentPerLine() ? 0 : mTabSpaces;
             std::string formatted;
 
-            #define DO_NEWLINE {formatted += '\n';formatted += std::string(indent,' ');}
+            #define DO_NEWLINE {if(GetPretty()){formatted += '\n';formatted += std::string(indent,' ');}}
 
+            DO_NEWLINE
             // Don't do the last char so we can easily check the next char. Otherwise could go pop. Last should always be } or ]
             for( size_t n = 0 ; n < JSONLine.size()-1 ; n++ )
             {
                 const char c = JSONLine[n];
                 const char next = JSONLine[n];
+                assert( c != '\n' );
                 formatted += c;
                 if( c == '{' || c == '[' )
                 {
@@ -94,8 +101,10 @@ If output file is not specified then will write to std::cout.
                     DO_NEWLINE
                 }
             }
-            formatted += "\n";
+            indent -= mTabSpaces;
+            DO_NEWLINE
             formatted += JSONLine.back();
+            DO_NEWLINE
             return formatted;
         }
 
@@ -129,6 +138,7 @@ public:
 
         AddArgument('p',"pretty-printing","If set, will print with indentation and carrage returns.",no_argument);
         AddArgument('m',"multiple-documents","If set, each line will be a sepirate Json document. Handy if piping each line of the output to the cloud.",no_argument);
+        AddArgument('s',"skip blank lines","If set, any empty line will be skipped. If not set an exception will be thrown on empty lines. Default is to fail on blank lines.",no_argument);
     }
 
     int ConvertToString()
@@ -162,16 +172,11 @@ public:
             return EXIT_FAILURE;
         }
 
+        const char* newline = (GetPretty()?"\n":"");
+
         if( GetDocumentPerLine() == false )
         {
-            if( GetPretty() )
-            {
-                std::cout << "{\n";
-            }
-            else
-            {
-                std::cout << "{";
-            }
+            std::cout << "{" << newline;
         }
 
         while( std::cin.eof() == false && mNumLines > 0 )
@@ -185,23 +190,18 @@ public:
             }
 
             const std::string jsonLine = ConvertLineToJson(line,columns);
-
-            // Now output to std::out
-            // This is where we'll add formatting if asked for and either create one json document perline or all the output as one json document.
-            std::cout << FormatJsonLine(jsonLine) << "\n";
-            mNumLines--;
+            if( jsonLine.size() > 0 )
+            {
+                // Now output to std::out
+                // This is where we'll add formatting if asked for and either create one json document perline or all the output as one json document.
+                std::cout << FormatJsonLine(jsonLine) << newline;
+                mNumLines--;
+            }
         }
 
         if( GetDocumentPerLine() == false )
         {
-            if( GetPretty() )
-            {
-                std::cout << "}\n";
-            }
-            else
-            {
-                std::cout << "}";
-            }
+            std::cout << "}" << newline;
         }
 
         return EXIT_SUCCESS;
