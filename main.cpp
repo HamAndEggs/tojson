@@ -19,10 +19,24 @@ class PipeToJson : public CommandLineOptions
     size_t mDepth = 0;
     size_t mNumLines = std::numeric_limits<size_t>::max();
     size_t mTabSpaces = 2;
+    int indent = 0;
 
     bool GetPretty()const{return IsSet('p');}
-    bool GetDocumentPerLine()const{return IsSet('m');}
+    bool GetAsOneDocument()const{return IsSet('o');}
     bool GetSkipEmptyLines()const{return IsSet('s');}
+
+    std::string GetNewline(bool inString = false)
+    {
+        if(GetPretty() && inString == false )
+        {
+            return "\n" + std::string(indent,' ');
+        }
+        else if( GetAsOneDocument() == false )
+        {
+            return "\n";
+        }
+        return "";
+    }
 
     std::string ConvertLineToJson(const std::string& rawLine,const std::vector<std::string>& columns)
     {
@@ -68,13 +82,9 @@ class PipeToJson : public CommandLineOptions
             // After each opening bracket, add a newline and increase the indent.
             // After each value / key value add a new line.
             // After each closing bracket, decrease indent. Add newline, but after a comma if there is one.
-            int indent = GetDocumentPerLine() ? 0 : mTabSpaces;
             std::string formatted;
             bool inString = false;
 
-            #define DO_NEWLINE {if(GetPretty() && inString == false ){formatted += '\n';formatted += std::string(indent,' ');}}
-
-            DO_NEWLINE
             // Don't do the last char so we can easily check the next char. Otherwise could go pop. Last should always be } or ]
             for( size_t n = 0 ; n < JSONLine.size()-1 ; n++ )
             {
@@ -85,7 +95,7 @@ class PipeToJson : public CommandLineOptions
                 if( c == '{' || c == '[' )
                 {
                     indent += mTabSpaces;
-                    DO_NEWLINE
+                    formatted += GetNewline(inString);
                 }
                 else if( c == '}' || c == ']' )
                 {
@@ -95,11 +105,11 @@ class PipeToJson : public CommandLineOptions
                         formatted += ',';
                         n++;
                     }
-                    DO_NEWLINE
+                    formatted += GetNewline(inString);
                 }
                 else if( c == ',')
                 {
-                    DO_NEWLINE
+                    formatted += GetNewline(inString);
                 }
                 else if( c == '\"' )
                 {
@@ -107,9 +117,8 @@ class PipeToJson : public CommandLineOptions
                 }
             }
             indent -= mTabSpaces;
-            DO_NEWLINE
+            formatted += GetNewline(inString);
             formatted += JSONLine.back();
-            DO_NEWLINE
             return formatted;
         }
 
@@ -142,7 +151,7 @@ public:
         );
 
         AddArgument('p',"pretty-printing","If set, will print with indentation and carrage returns.",no_argument);
-        AddArgument('m',"multiple-documents","If set, each line will be a sepirate Json document. Handy if piping each line of the output to the cloud.",no_argument);
+        AddArgument('o',"one-document","If set, all output will be placed within one document. By default, each line is it's own document.",no_argument);
         AddArgument('s',"skip blank lines","If set, any empty line will be skipped. If not set an exception will be thrown on empty lines. Default is to fail on blank lines.",no_argument);
     }
 
@@ -178,10 +187,13 @@ public:
         }
 
         const char* newline = (GetPretty()?"\n":"");
+        const char* comma = (GetAsOneDocument()?",":"");
+        const char* optionalComma = "";
 
-        if( GetDocumentPerLine() == false )
+        if( GetAsOneDocument() )
         {
-            std::cout << "{" << newline;
+            indent = mTabSpaces;
+            std::cout << "{";
         }
 
         while( std::cin.eof() == false && mNumLines > 0 )
@@ -199,14 +211,15 @@ public:
             {
                 // Now output to std::out
                 // This is where we'll add formatting if asked for and either create one json document perline or all the output as one json document.
-                std::cout << FormatJsonLine(jsonLine) << newline;
+                std::cout << optionalComma << GetNewline() << FormatJsonLine(jsonLine);
+                optionalComma = comma;// Done like this as we don't know when the data will end.
                 mNumLines--;
             }
         }
 
-        if( GetDocumentPerLine() == false )
+        if( GetAsOneDocument() )
         {
-            std::cout << "}" << newline;
+            std::cout << newline << "}" << newline;
         }
 
         return EXIT_SUCCESS;
